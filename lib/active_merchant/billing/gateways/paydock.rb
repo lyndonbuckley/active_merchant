@@ -17,17 +17,17 @@ module ActiveMerchant #:nodoc:
       self.display_name = 'PayDock'
 
       AUTHORIZATION_MAP = {
-          'h' => 'charge_id',
-          'u' => 'customer_id',
-          'g' => 'gateway_id',
-          's' => 'payment_source_id',
-          'v' => 'vault_token',
-          'f' => 'first_name',
-          'l' => 'last_name',
-          'e' => 'email',
-          'r' => 'customer_reference',
-          't' => 'charge_reference',
-          'x' => 'external_id'
+          charge_id: 'h',
+          customer_id: 'u',
+          gateway_id: 'g',
+          payment_source_id: 's',
+          vault_token: 'v',
+          first_name: 'f',
+          last_name: 'l',
+          email: 'e',
+          customer_reference: 'r',
+          charge_reference: 't',
+          external_id: 'x'
       }
 
       STANDARD_ERROR_CODE_MAPPING = {}
@@ -148,6 +148,15 @@ module ActiveMerchant #:nodoc:
         commit(:post, 'charges/' + charge_id + '/refunds', post, options)
       end
 
+      # create an authorization token using given parameters
+      def authorization_create(params)
+        map = AUTHORIZATION_MAP
+        auth = {}
+        params.each_key{|key| auth[map[key]] = params[key] if map[key]}
+        param = auth.to_param
+        param == '' ? nil : param
+      end
+
       def supports_scrubbing
         true
       end
@@ -221,7 +230,6 @@ module ActiveMerchant #:nodoc:
           post[:customer] = post[:customer] || {}
           post[:customer][:payment_source] = post[:customer][:payment_source] || {}
           post[:customer][:payment_source].merge(payment_source)
-
         end
       end
 
@@ -251,7 +259,6 @@ module ActiveMerchant #:nodoc:
       def authorization_from(endpoint, method, response, options = {})
         success = success_from(response)
         if (success)
-          map = AUTHORIZATION_MAP.invert
           type = response['resource']['type']
           data = response['resource']['data']
           param = {}
@@ -278,38 +285,36 @@ module ActiveMerchant #:nodoc:
           # get first name and last from credit card
           if options[:credit_card]
             card = options[:credit_card]
-            param[map['first_name']] = card.first_name if card.first_name
-            param[map['last_name']] = card.last_name if card.last_name
+            param[:first_name] = card.first_name if card.first_name
+            param[:last_name] = card.last_name if card.last_name
           end
 
           # get info from charge object
           if charge
-            param[map['charge_id']] = charge['_id'] if charge['_id']
-            param[map['external_id']] = charge['external_id'] if charge['external_id']
-            param[map['charge_reference']] = charge['reference'] if charge['reference']
-            param[map['customer_id']] = charge['customer_id'] if charge['customer_id']
+            param[:charge_id] = charge['_id'] if charge['_id']
+            param[:external_id] = charge['external_id'] if charge['external_id']
+            param[:charge_reference] = charge['reference'] if charge['reference']
+            param[:customer_id] = charge['customer_id'] if charge['customer_id']
           end
 
           # get info form customer object
           if customer
-            param[map['customer_id']] = customer['customer_id'] if customer['customer_id']
-            param[map['customer_id']] = customer['_id'] if customer['_id']
-            param[map['customer_reference']] = customer['reference'] if customer['reference']
-            param[map['first_name']] = customer['first_name'] if customer['first_name']
-            param[map['last_name']] = customer['last_name'] if customer['last_name']
-            param[map['email']] = customer['email'] if customer['email']
+            param[:customer_id] = customer['customer_id'] if customer['customer_id']
+            param[:customer_id] = customer['_id'] if customer['_id']
+            param[:customer_reference] = customer['reference'] if customer['reference']
+            param[:first_name] = customer['first_name'] if customer['first_name']
+            param[:last_name] = customer['last_name'] if customer['last_name']
+            param[:email] = customer['email'] if customer['email']
           end
 
           # get info from payment_source object
           if source
-            param[map['vault_token']] = source['vault_token'] if source['vault_token']
-            param[map['payment_source_id']] = source['_id'] if source['_id']
-            param[map['gateway_id']] = source['gateway_id'] if source['gateway_id']
+            param[:vault_token] = source['vault_token'] if source['vault_token']
+            param[:payment_source_id] = source['_id'] if source['_id']
+            param[:gateway_id] = source['gateway_id'] if source['gateway_id']
           end
 
-          param = param.to_param
-          param == '' ? nil : param
-          return param
+          authorization_create(param)
         else
           return nil
         end
@@ -317,7 +322,8 @@ module ActiveMerchant #:nodoc:
 
       def authorization_parse(authorization)
         if authorization.is_a? String
-          return Hash[CGI::parse(authorization).map {|k, v| [AUTHORIZATION_MAP[k].to_sym, v.first]}]
+          map = AUTHORIZATION_MAP.invert
+          return Hash[CGI::parse(authorization).map {|k, v| [map[k], v.first]}]
         elsif authorization.instance_of? CreditCard
           return {credit_card: authorization}
         else
@@ -370,6 +376,7 @@ module ActiveMerchant #:nodoc:
       def commit(method, endpoint, data = nil, options = {})
         response = api_call(method, endpoint, data, options)
         success = success_from(response)
+        puts method.to_s + ' ' + endpoint + ' ' + success.to_s
         Response.new(success,
                      message_from(response),
                      response,
