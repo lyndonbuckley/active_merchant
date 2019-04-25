@@ -16,7 +16,7 @@ module ActiveMerchant #:nodoc:
       self.homepage_url = 'https://paydock.com/'
       self.display_name = 'PayDock'
 
-      TOKEN_MAP = {
+      AUTHORIZATION_MAP = {
           'h' => 'charge_id',
           'u' => 'customer_id',
           'g' => 'gateway_id',
@@ -251,7 +251,7 @@ module ActiveMerchant #:nodoc:
       def authorization_from(endpoint, method, response, options = {})
         success = success_from(response)
         if (success)
-          map = TOKEN_MAP.invert
+          map = AUTHORIZATION_MAP.invert
           type = response['resource']['type']
           data = response['resource']['data']
           param = {}
@@ -317,7 +317,7 @@ module ActiveMerchant #:nodoc:
 
       def authorization_parse(authorization)
         if authorization.is_a? String
-          return Hash[CGI::parse(authorization).map {|k, v| [TOKEN_MAP[k].to_sym, v.first]}]
+          return Hash[CGI::parse(authorization).map {|k, v| [AUTHORIZATION_MAP[k].to_sym, v.first]}]
         elsif authorization.instance_of? CreditCard
           return {credit_card: authorization}
         else
