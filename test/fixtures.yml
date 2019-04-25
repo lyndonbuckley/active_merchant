@@ -670,6 +670,11 @@ paybox_direct:
   rang: 85
 
 # Working credentials, no need to replace
+paydock:
+  some_credential: SOMECREDENTIAL
+  another_credential: ANOTHERCREDENTIAL
+
+# Working credentials, no need to replace
 payeezy:
   apikey: UyDMTXx6TD9WErF6ynw7xeEfCAn8fcGs
   apisecret: 2a4974e242c91cab7f38910938f2a5db79e89756b084bbf7cab7849b50a9930f
