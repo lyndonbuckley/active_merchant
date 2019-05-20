@@ -136,7 +136,11 @@ module ActiveMerchant #:nodoc:
         auth = authorization_parse(authorization)
         post = {}
         add_amount(post, amount, options)
-        commit(:post, 'charges/' + auth[:charge_id] + '/capture', post, options)
+        if (auth[:charge_id])
+          commit(:post, 'charges/' + auth[:charge_id] + '/capture', post, options)
+        else
+          Response.new(false, "Invalid charge_id in authorization for capture")
+        end
       end
 
       def refund(amount, authorization, options = {})
@@ -150,11 +154,22 @@ module ActiveMerchant #:nodoc:
 
       # create an authorization token using given parameters
       def authorization_create(params)
-        map = AUTHORIZATION_MAP
         auth = {}
-        params.each_key{|key| auth[map[key]] = params[key] if map[key]}
+        params.each_key{|key| auth[AUTHORIZATION_MAP[key]] = params[key] if AUTHORIZATION_MAP[key]}
         param = auth.to_param
         param == '' ? nil : param
+      end
+
+      # parse an authorization token and get parameters
+      def authorization_parse(authorization)
+        if authorization.is_a? String
+          map = AUTHORIZATION_MAP.invert
+          return Hash[CGI::parse(authorization).map {|k, v| [map[k], v.first]}]
+        elsif authorization.instance_of? CreditCard
+          return {credit_card: authorization}
+        else
+          return {}
+        end
       end
 
       def supports_scrubbing
@@ -163,8 +178,9 @@ module ActiveMerchant #:nodoc:
 
       def scrub(transcript)
         transcript.
-            gsub(/(card_number\\?":\\?")(\d*)/, '\1[FILTERED]').
-            gsub(/(card_ccv\\?":\\?")(\d*)/, '\1[FILTERED]')
+            gsub(%r((X-User-Secret-Key: )\w+), '\1********').
+            gsub(/(card_number\\?":\\?")(\d*)/, '\1****************').
+            gsub(/(card_ccv\\?":\\?")(\d*)/, '\1***')
       end
 
       private
@@ -320,16 +336,7 @@ module ActiveMerchant #:nodoc:
         end
       end
 
-      def authorization_parse(authorization)
-        if authorization.is_a? String
-          map = AUTHORIZATION_MAP.invert
-          return Hash[CGI::parse(authorization).map {|k, v| [map[k], v.first]}]
-        elsif authorization.instance_of? CreditCard
-          return {credit_card: authorization}
-        else
-          return {}
-        end
-      end
+
 
       def parse(body)
         JSON.parse(body)
@@ -349,6 +356,7 @@ module ActiveMerchant #:nodoc:
       def fetch(action)
         url = (test? ? test_url : live_url) + action
         raw = ssl_get(url, headers(options))
+        raw
       end
 
       def api_call(method, endpoint, data = nil, options = {})
@@ -376,7 +384,6 @@ module ActiveMerchant #:nodoc:
       def commit(method, endpoint, data = nil, options = {})
         response = api_call(method, endpoint, data, options)
         success = success_from(response)
-        puts method.to_s + ' ' + endpoint + ' ' + success.to_s
         Response.new(success,
                      message_from(response),
                      response,
