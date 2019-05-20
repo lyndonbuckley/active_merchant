@@ -4,143 +4,166 @@ class RemotePaydockTest < Test::Unit::TestCase
   def setup
     @gateway = PaydockGateway.new(fixtures(:paydock))
 
-    @amount = 100
-    @credit_card = credit_card('4000100011112224')
-    @declined_card = credit_card('4000300011112220')
+    @amount = rand(1..50) * 200 # create test amount between 2 and 100 dollars
+
+    # PinPayments test cards, may not work with other gateways
+    @visa = {
+        success: credit_card('4200000000000000'),
+        decline: credit_card('4100000000000001'),
+        no_funds: credit_card('4000000000000002'),
+        invalid_cvv: credit_card('4900000000000003'),
+        invalid_card: credit_card('4800000000000004'),
+        processing_error: credit_card('4700000000000005'),
+        susptected_fraud: credit_card('4600000000000006'),
+        unknown_error: credit_card('4400000000000099')
+    }
+    @mastercard = {
+        success: credit_card('5520000000000000'),
+        decline: credit_card('5560000000000001'),
+        no_funds: credit_card('5510000000000002'),
+        invalid_cvv: credit_card('5550000000000003'),
+        invalid_card: credit_card('5500000000000004'),
+        processing_error: credit_card('5590000000000005'),
+        susptected_fraud: credit_card('5540000000000006'),
+        unknown_error: credit_card('5530000000000099')
+    }
+
+    @amex = {
+        success: credit_card('372000000000000',{verification_value:1234}),
+        decline: credit_card('371000000000001',{verification_value:1234}),
+        no_funds: credit_card('370000000000002',{verification_value:1234}),
+        invalid_cvv: credit_card('379000000000003',{verification_value:1234}),
+        invalid_card: credit_card('378000000000004',{verification_value:1234}),
+        processing_error: credit_card('377000000000005',{verification_value:1234}),
+        susptected_fraud: credit_card('376000000000006',{verification_value:1234}),
+        unknown_error: credit_card('374000000000099',{verification_value:1234})
+    }
+
+    # switch between visa, mastercard or amex cards
+    case rand(1..2)
+    when 2
+      @card = @mastercard
+    when 3
+      @card = @amex
+    else
+      @card = @visa
+    end
+
+    @card_success = @card[:success]
+    @card_decline = @card[:decline]
+
     @options = {
-      billing_address: address,
+      customer: {
+          email: 'activemerchant@paydock.com'
+      },
       description: 'Store Purchase'
     }
   end
 
   def test_successful_purchase
-    response = @gateway.purchase(@amount, @credit_card, @options)
+    response = @gateway.purchase(@amount, @card_success, @options)
     assert_success response
-    assert_equal 'REPLACE WITH SUCCESS MESSAGE', response.message
+    assert_equal 201, response.message
   end
 
   def test_successful_purchase_with_more_options
     options = {
-      order_id: '1',
-      ip: "127.0.0.1",
-      email: "joe@example.com"
+      reference: 'TestReference',
+      customer: {
+          first_name: 'Joe',
+          last_name: 'Blow',
+          email: "joe@example.com"
+      }
     }
 
-    response = @gateway.purchase(@amount, @credit_card, options)
+    response = @gateway.purchase(@amount, @card_success, options)
+
     assert_success response
-    assert_equal 'REPLACE WITH SUCCESS MESSAGE', response.message
+    assert_equal 201, response.message
+    assert_equal 'TestReference', response.params['resource']['data']['reference']
+    assert_equal 'complete', response.params['resource']['data']['status']
   end
 
   def test_failed_purchase
-    response = @gateway.purchase(@amount, @declined_card, @options)
+    response = @gateway.purchase(@amount, @card_decline, @options)
     assert_failure response
-    assert_equal 'REPLACE WITH FAILED PURCHASE MESSAGE', response.message
+    assert_equal 400, response.params['status']
+    assert_equal 'card_declined', response.params['error']['details'][0]['gateway_specific_code']
+    assert_equal 'failed', response.params['resource']['data']['status']
+
   end
 
   def test_successful_authorize_and_capture
-    auth = @gateway.authorize(@amount, @credit_card, @options)
+    auth = @gateway.authorize(@amount, @card_success, @options)
     assert_success auth
+    assert_equal 'pending', auth.params['resource']['data']['status']
 
     assert capture = @gateway.capture(@amount, auth.authorization)
     assert_success capture
-    assert_equal 'REPLACE WITH SUCCESS MESSAGE', capture.message
+    assert_equal 'complete', capture.params['resource']['data']['status']
+    assert_equal nil, capture.params['error']
   end
 
   def test_failed_authorize
-    response = @gateway.authorize(@amount, @declined_card, @options)
+    response = @gateway.authorize(@amount, @card_decline, @options)
     assert_failure response
-    assert_equal 'REPLACE WITH FAILED AUTHORIZE MESSAGE', response.message
-  end
-
-  def test_partial_capture
-    auth = @gateway.authorize(@amount, @credit_card, @options)
-    assert_success auth
-
-    assert capture = @gateway.capture(@amount-1, auth.authorization)
-    assert_success capture
+    assert_equal 400, response.params['status']
+    assert_equal 'card_declined', response.params['error']['details'][0]['gateway_specific_code']
+    assert_equal 'failed', response.params['resource']['data']['status']
   end
 
   def test_failed_capture
     response = @gateway.capture(@amount, '')
     assert_failure response
-    assert_equal 'REPLACE WITH FAILED CAPTURE MESSAGE', response.message
+    assert_equal 'Invalid charge_id in authorization for capture', response.message
   end
 
   def test_successful_refund
-    purchase = @gateway.purchase(@amount, @credit_card, @options)
+    purchase = @gateway.purchase(@amount, @card_success, @options)
     assert_success purchase
 
     assert refund = @gateway.refund(@amount, purchase.authorization)
     assert_success refund
-    assert_equal 'REPLACE WITH SUCCESSFUL REFUND MESSAGE', refund.message
+    assert_equal 200,  refund.params['status']
+    assert_equal 'refund_requested',  refund.params['resource']['data']['status']
   end
 
   def test_partial_refund
-    purchase = @gateway.purchase(@amount, @credit_card, @options)
+    purchase = @gateway.purchase(@amount, @card_success, @options)
     assert_success purchase
 
-    assert refund = @gateway.refund(@amount-1, purchase.authorization)
+    assert refund = @gateway.refund(@amount / 2, purchase.authorization)
     assert_success refund
+    assert_equal 200,  refund.params['status']
+    assert_equal 'refund_requested',  refund.params['resource']['data']['status']
   end
 
   def test_failed_refund
-    response = @gateway.refund(@amount, '')
-    assert_failure response
-    assert_equal 'REPLACE WITH FAILED REFUND MESSAGE', response.message
-  end
+    purchase = @gateway.purchase(@amount, @card_success, @options)
+    assert_success purchase
 
-  def test_successful_void
-    auth = @gateway.authorize(@amount, @credit_card, @options)
-    assert_success auth
-
-    assert void = @gateway.void(auth.authorization)
-    assert_success void
-    assert_equal 'REPLACE WITH SUCCESSFUL VOID MESSAGE', void.message
-  end
-
-  def test_failed_void
-    response = @gateway.void('')
-    assert_failure response
-    assert_equal 'REPLACE WITH FAILED VOID MESSAGE', response.message
-  end
-
-  def test_successful_verify
-    response = @gateway.verify(@credit_card, @options)
-    assert_success response
-    assert_match %r{REPLACE WITH SUCCESS MESSAGE}, response.message
-  end
-
-  def test_failed_verify
-    response = @gateway.verify(@declined_card, @options)
-    assert_failure response
-    assert_match %r{REPLACE WITH FAILED PURCHASE MESSAGE}, response.message
+    assert refund = @gateway.refund(@amount * 2, purchase.authorization)
+    assert_failure refund
+    assert_equal 400,  refund.params['status']
   end
 
   def test_invalid_login
     gateway = PaydockGateway.new(login: '', password: '')
 
-    response = gateway.purchase(@amount, @credit_card, @options)
+    response = gateway.purchase(@amount, @card_success, @options)
     assert_failure response
-    assert_match %r{REPLACE WITH FAILED LOGIN MESSAGE}, response.message
-  end
-
-  def test_dump_transcript
-    # This test will run a purchase transaction on your gateway
-    # and dump a transcript of the HTTP conversation so that
-    # you can use that transcript as a reference while
-    # implementing your scrubbing logic.  You can delete
-    # this helper after completing your scrub implementation.
-    dump_transcript_and_fail(@gateway, @amount, @credit_card, @options)
+    assert_equal 403,  response.params['status']
+    assert_match %r{Access forbidden}, response.message
   end
 
   def test_transcript_scrubbing
     transcript = capture_transcript(@gateway) do
-      @gateway.purchase(@amount, @credit_card, @options)
+      @gateway.purchase(@amount, @card_success, @options)
     end
     transcript = @gateway.scrub(transcript)
 
-    assert_scrubbed(@credit_card.number, transcript)
-    assert_scrubbed(@credit_card.verification_value, transcript)
+    assert_scrubbed('\"' + @card_success.number + '\"', transcript)
+    assert_scrubbed('\"' + @card_success.verification_value  + '\"', transcript)
     assert_scrubbed(@gateway.options[:password], transcript)
   end
 
